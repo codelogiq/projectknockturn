@@ -55,8 +55,7 @@ unsigned long msSinceLastSpellEffect = 0; // state tracking
 unsigned long lastLanternReset = 0; // state tracking
 unsigned long lastGrateReset = 0; // state tracking
 /* BEGIN
- * The following are state tracking variables that shouldnt be touched. 
- */
+ * The following are state tracking variables that shouldnt be touched. */
 // explosion effect state tracking variables
 uint32_t explosionStep = 0; 
 bool explosionEffectInProgress = false;
