@@ -115,17 +115,6 @@ int chaseColorIndex = 0;
 
 // lightning variables
 
-
-// unsigned long lightningStartTime = 0;
-// unsigned long lightningDuration = 0;
-// bool isLightning = false;
-// int minStrikes = 5;
-// int maxStrikes = 10;
-// int totalHitspots = sizeof(effects) / sizeof(effects[0]);  // total potential hitspots
-// int currentStrike = 0;
-// unsigned long lastActionTime = 0;
-// bool strikeInProgress = false;
-
 enum LightningEffectStage {
   LIGHTNING_START,
   LIGHTNING_STRIKE,
@@ -163,7 +152,7 @@ void triggerSpellEffects() {
       flashEffect(); // moved to nonblocking successfully
       break;
     case 1:
-      explosionEffect2(); // moved to nonblocking successfully
+      explosionEffect(); // moved to nonblocking successfully
       break;
     case 2:
       houseColorChase(); // moved to nonblocking successfully
@@ -172,17 +161,13 @@ void triggerSpellEffects() {
       houseColorEffect(); // 
       break;
     case 4:
-      lightningEffectBlocking();
+      lightningEffect();
       break;
     case 5: 
       wandBattleEffect(); // moved to nonblocking successfully
       break;
   }
 }
-
-
-
-
 
 void resetEffects(bool show = true) {
   for (int led : effects) {
@@ -192,7 +177,6 @@ void resetEffects(bool show = true) {
     FastLED.show();
   }
 }
-
 
 void resetLanterns(bool show = true) {
   for (int torch : lanterns) {
@@ -217,7 +201,6 @@ void resetGrates(bool show = true) {
   }
 }
 
-
 void resetAllToDefault() {
   FastLED.clear(false);
   resetGrates(false);
@@ -225,8 +208,6 @@ void resetAllToDefault() {
   resetLanterns(false);
   FastLED.show();
 }
-
-bool demoMode = false;
 
 void powerdownLights() {
   for (int i=0;i<NUM_LEDS;i++) {
@@ -236,9 +217,7 @@ void powerdownLights() {
   Serial.println("goodbye.");
 }
 
-
-
-void explosionEffect2() {
+void explosionEffect() {
   if (!explosionEffectInProgress) {
      explosionStep = 0;
      explosionEffectInProgress = true;
@@ -247,7 +226,7 @@ void explosionEffect2() {
   if (explosionStep < 255) {
     if (currentMillis - explosionLastStepTime >= delayBetweenSteps) {
       for (int magic : effects) {
-        CHSV color = CHSV(random(0, 255), random(100, 200), explosionStep);
+        CHSV color = CHSV(random8(), random(100, 200), explosionStep);
         leds[magic].setHSV(color.hue, color.sat, color.val);
       }
       if (random(0, 400) == 5) {
@@ -362,6 +341,7 @@ void wandBattleEffect() {
 }
 
 void houseColorEffect() {
+  unsigned long currentMillis = millis();
   if (!houseColorEffectInProgress) { 
     state = INIT;
     houseColorEffectInProgress = true;
@@ -383,13 +363,12 @@ void houseColorEffect() {
         color = HOUSE_GRYFFINDOR;
         break;
     }
-    effectStartTime = millis();
-    transitionStartTime = millis();
+    effectStartTime = currentMillis;
+    transitionStartTime = currentMillis;
     fadeInOutDuration = 1000; // Change this value to adjust fade in/out duration
     state = FLASH_UP;
   }
 
-  unsigned long currentMillis = millis();
   switch (state) {
     case FLASH_UP:
       if (currentMillis - transitionStartTime < fadeInOutDuration) {
@@ -431,23 +410,25 @@ void houseColorEffect() {
 }
 
 void houseColorChase() {
-  int maxCount = sizeof(effects) / sizeof(effects[0])-1;
+  unsigned long currentMillis = millis();
   if (!houseColorChaseEffectRunning) { 
     // we need to setup the color chase.
     houseColorChaseEffectRunning = true;
-    houseChaseLastUpdate = millis();
+    houseChaseLastUpdate = currentMillis;
     houseChaseIndex = 0;
     cycleCount = 0;
     chaseDirection = 1;
     chaseColorIndex = random(0,3);
     if (chaseColorIndex != 1) chaseColorIndex = random(0,3);
   }
-  if (millis() - houseChaseLastUpdate > houseColorChaseWaveDelay) { 
+  int maxCount = sizeof(effects) / sizeof(effects[0])-1;
+
+  if (currentMillis - houseChaseLastUpdate > houseColorChaseWaveDelay) { 
     if (chaseDirection == 1) { 
       // going up
       if (houseChaseIndex+1 == maxCount) { 
         chaseDirection = -1;
-        houseChaseLastUpdate = millis();
+        houseChaseLastUpdate = currentMillis;
         return;
       }
       leds[effects[houseChaseIndex]] = houseChaseColors[chaseColorIndex];
@@ -455,7 +436,7 @@ void houseColorChase() {
         leds[effects[houseChaseIndex-1]] = CRGB::Black;
       }
       FastLED.show();
-      houseChaseLastUpdate = millis();
+      houseChaseLastUpdate = currentMillis;
       houseChaseIndex++;
       return;
     } else { 
@@ -468,7 +449,7 @@ void houseColorChase() {
           leds[effects[0]] = CRGB::Black;
           FastLED.show();
         }
-        houseChaseLastUpdate = millis();
+        houseChaseLastUpdate = currentMillis;
         leds[effects[0]] = houseChaseColors[chaseColorIndex];
         return;
       }
@@ -476,22 +457,20 @@ void houseColorChase() {
         leds[effects[houseChaseIndex+1]] = CRGB::Black;
       leds[effects[houseChaseIndex]] = houseChaseColors[chaseColorIndex];
       FastLED.show();
-      houseChaseLastUpdate = millis();
+      houseChaseLastUpdate = currentMillis;
       return;
     }
   }
 }
 
-
 void flashEffect() {
+  unsigned long currentMillis = millis();
   if (!isFlashing) {
-    flashStartTime = millis();
+    flashStartTime = currentMillis;
     flashDuration = random(0, 250);
     flashStep = 0;
     isFlashing = true;
   }
-
-  unsigned long currentMillis = millis();
 
   if (currentMillis - flashStartTime < flashDuration) {
     if (flashStep == 0) {
@@ -517,48 +496,6 @@ void flashEffect() {
   }
 }
 
-
-
-void lightningEffectBlocking() {
-  int minStrikes = 5;
-  int maxStrikes = 10;
-  int totalHitspots = sizeof(effects) / sizeof(effects[0]);  // total potential hitspots
-  for (int i = random(1, minStrikes); i <= random(1, maxStrikes); i++) {
-    Serial.println((String) "Hitting lightning strike " + i);
-    int sizeOfStrike = random(1, totalHitspots);  // how many leds are going to get struck
-    const size_t n = totalHitspots;
-    int localEffects[totalHitspots];
-    for (int j = 0; j < totalHitspots - 1; j++) {
-      localEffects[j] = effects[j];
-    }
-    int dimmer = 1;
-    if (i == 1) dimmer = 5;
-    else dimmer = random8(1, 3);
-
-    for (size_t c = 0; c < n - 1; c++) {
-      size_t j = random(0, n - c);
-      int t = localEffects[c];
-      localEffects[j] = t;
-    }
-    for (int j = 0; j < sizeOfStrike; j++) {
-      leds[localEffects[j]] = CRGB::Black;
-    }
-    FastLED.show();
-    for (int j = 0; j < sizeOfStrike; j++) {
-      leds[localEffects[j]].setHSV(255, 0, 255 / dimmer);
-    }
-    FastLED.show();
-    delay(random(4, 10));
-    for (int j = 0; j < sizeOfStrike; j++) {
-      leds[localEffects[j]] = CRGB::Black;
-    }
-    FastLED.show();
-    if (i == 1) delay(150);
-    delay(50 + random8(100));
-  }
-}
-
-
 void lightningEffect() {
   unsigned long currentMillis = millis();
   int localEffects[totalHitspots];
@@ -575,7 +512,6 @@ void lightningEffect() {
         currentLightningStage = LIGHTNING_CLEANUP;
         break;
       }
-      Serial.println((String) "Hitting lightning strike " + (strikeCounter + 1));
       sizeOfStrike = random(1, totalHitspots);
       strikeCounter++;
       dimmer = (strikeCounter == 1) ? 5 : random8(1, 3);
@@ -626,9 +562,20 @@ void lightningEffect() {
   }
 }
 
+void resetEffectFlags() { 
+  isFlashing = false;
+  strikeInProgress = false;
+  wandBattleInProgress = false;
+  explosionEffectInProgress = false;
+  houseColorEffectInProgress = false;
+  houseColorChaseEffectRunning = false;
+}
+
 void setup() {
+  unsigned long currentMillis = millis();
   Serial.begin(9600);
   randomSeed(analogRead(0));
+  random8Seed(analogRead(0));
   while (!Serial);
   FastLED.addLeds<LED_STRIP_TYPE, LED_PIN, LED_COLOR_MODE>(leds, NUM_LEDS)
     .setCorrection(TypicalLEDStrip)
@@ -637,43 +584,30 @@ void setup() {
   FastLED.setBrightness(MAX_BRIGHTNESS);
   FastLED.setMaxPowerInVoltsAndMilliamps(5, 1050);
   FastLED.clear();  // initialize LEDs to off.
-
-  msSinceLastSpellEffect = millis();
-  lastLanternReset = millis();
-  lastGrateReset = millis();
+  msSinceLastSpellEffect = currentMillis;
+  lastLanternReset = currentMillis;
+  lastGrateReset = currentMillis;
   // power button setup
   pinMode(MAIN_POWER_BUTTON_PIN, INPUT);
   pinMode(SW_RESET_PIN, INPUT);
   digitalWrite(SW_RESET_PIN, LOW);
-  isFlashing = false;
-  strikeInProgress = false;
-  wandBattleInProgress = false;
-  explosionEffectInProgress = false;
-  houseColorEffectInProgress = false;
+  resetEffectFlags();
   isPowered = digitalRead(MAIN_POWER_BUTTON_PIN) == HIGH;
   resetAllToDefault();
-  lastMainLoopReset = millis();
+  lastMainLoopReset = currentMillis;
 }
 
 bool lostPower = false;
 // working
 void loop() {
+  unsigned long currentMillis = millis();
   if (digitalRead(MAIN_POWER_BUTTON_PIN) == LOW) {
     if (!isPowered) { 
       delay(10);
-      // Serial.println("We're still off.");
       return;
     }
-    // we may want to consider doing a soft reset here when we turn back on.
-    // Serial.println("Need to turn off things.");
     powerdownLights();
-    lostPower = true;
-    isFlashing = false;
-    strikeInProgress = false;
-    wandBattleInProgress = false;
-    explosionEffectInProgress = false;
-    houseColorEffectInProgress = false;
-    isPowered = false;
+    resetEffectFlags();
     return;
   } else {
     // power button is ON
@@ -691,7 +625,7 @@ void loop() {
       return;
     }
     if (explosionEffectInProgress) {
-      explosionEffect2();
+      explosionEffect();
       return;
     }
     if (houseColorChaseEffectRunning) {
@@ -703,18 +637,17 @@ void loop() {
       return;
     }
     if (!strikeInProgress && !isFlashing && !wandBattleInProgress && !explosionEffectInProgress && !houseColorChaseEffectRunning && !houseColorEffectInProgress) {
-      if (millis() - lastMainLoopReset > 200) {
+      if (currentMillis - lastMainLoopReset > 200) {
         resetAllToDefault();
-        lastMainLoopReset = millis();
+        lastMainLoopReset = currentMillis;
       }
     }
     if (useSpellEffects) {
-      if (millis() - msSinceLastSpellEffect > minTicksUntilSpellEffects) {
-        if ((millis() - msSinceLastSpellEffect) > random(minTicksUntilSpellEffects, maxTicksUntilSpellEffects)) {
-//          triggerSpellEffects();
+      if (currentMillis - msSinceLastSpellEffect > minTicksUntilSpellEffects) {
+        if ((currentMillis - msSinceLastSpellEffect) > random(minTicksUntilSpellEffects, maxTicksUntilSpellEffects)) {
           Serial.println((String)"Spell effects have been triggered. millis was: " + msSinceLastSpellEffect);
-          lightningEffect();
-          msSinceLastSpellEffect = millis();
+          triggerSpellEffects();
+          msSinceLastSpellEffect = currentMillis;
         }
       }
     }
