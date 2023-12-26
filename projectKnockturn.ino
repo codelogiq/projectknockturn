@@ -1,13 +1,24 @@
 #include <FastLED.h>
+#include <SoftwareSerial.h>
+#include "Arduino.h"
+#include "DFRobotDFPlayerMini.h"
 
-#define NUM_LEDS 21             // how many LEDs we gots.
+
+// MP3 SETUP
+SoftwareSerial mp3Serial(8/* Rx Arduino <- Tx DFPlayer */,7 /* Tx Arduino (Voltage Transformer) -> Rx DFPlayer */);
+#define MAIN_AUDIO_PIN 11 /* pin for audio on/off */
+bool isAudioEnabled = false;
+DFRobotDFPlayerMini mp3player;
+
+// LED Setup
+#define NUM_LEDS 20             // how many LEDs we gots. (This needs to be updated to 20)
 #define LED_PIN 4               // pin that LEDs are connected to.
 #define LED_STRIP_TYPE WS2812B  // dependent on LED strip
 #define LED_COLOR_MODE GRB      // dependent on LED strip
 #define STATIC_COLOR CHSV(30, 208, 127)       // warm yellowish color for lanterns
 #define COLOR_GRATE_PURPLE CHSV(205, 70, 86)  // purple color for grate
-#define MAX_BRIGHTNESS 85
-#define MAIN_POWER_BUTTON_PIN 7
+#define MAX_BRIGHTNESS 100
+#define MAIN_POWER_BUTTON_PIN 10 /* pin for main power */
 #define SW_RESET_PIN 8
 // house colors
 #define HOUSE_RAVENCLAW CHSV(160, 161, 52)
@@ -17,9 +28,9 @@
 
 
 // LED configuration
-static const uint8_t lanterns[] = { 1, 3, 5, 8, 10, 12, 15, 16, 19 };        // which LEDs in the strip are for lanterns
-static const uint8_t effects[] = { 0, 2, 4, 6, 9, 11, 13, 14, 17, 18, 20 };  // which LEDs in the strip are for effects
-static const uint8_t grates[] = { 7 };                                       // which LEDs in the strip are for secondary color grates (maybe expand this to define the color along with the led)
+static const uint8_t lanterns[] = { 1, 3, 5, 8, 10, 12, 14, 16, 18 };        // which LEDs in the strip are for lanterns
+static const uint8_t effects[] = { 0, 2, 4, 7, 9, 11, 13, 15, 17, 19 };  // which LEDs in the strip are for effects
+static const uint8_t grates[] = { 6 };                                       // which LEDs in the strip are for secondary color grates (maybe expand this to define the color along with the led)
 const static uint8_t totalEffects = sizeof(effects) / sizeof(effects[0]); // state tracking
 
 // Configurables
@@ -78,14 +89,14 @@ unsigned long lastUpdate = 0;
 
 // house color effect state tracking variables
 enum EffectState {
-  INIT,
-  FLASH_UP,
-  PAUSE,
-  FADE_DOWN,
-  DONE
+  EF_INIT,
+  EF_FLASH_UP,
+  EF_PAUSE,
+  EF_FADE_DOWN,
+  EF_DONE
 };
 bool houseColorEffectInProgress = false;
-EffectState state = INIT;
+EffectState state = EF_INIT;
 unsigned long effectStartTime = 0;
 unsigned long transitionStartTime = 0;
 CHSV color;
@@ -299,10 +310,10 @@ void wandBattleEffect() {
 void houseColorEffect() {
   unsigned long currentMillis = millis();
   if (!houseColorEffectInProgress) { 
-    state = INIT;
+    state = EF_INIT;
     houseColorEffectInProgress = true;
   }
-  if (state == INIT) {
+  if (state == EF_INIT) {
     uint8_t colorToChoose = random8(0, 3);
     if (colorToChoose != 1) colorToChoose = random8(0, 3); // Weight towards Ravenclaw
 
@@ -322,11 +333,11 @@ void houseColorEffect() {
     }
     effectStartTime = currentMillis;
     transitionStartTime = currentMillis;
-    state = FLASH_UP;
+    state = EF_FLASH_UP;
   }
 
   switch (state) {
-    case FLASH_UP:
+    case EF_FLASH_UP:
       if (currentMillis-transitionStartTime < fadeInOutDuration) {
         uint32_t targetValue = map(currentMillis, transitionStartTime, transitionStartTime + fadeInOutDuration, color.val, 255);
         for (uint8_t magic : effects) {
@@ -335,16 +346,16 @@ void houseColorEffect() {
         FastLED.show();
       } else {
         transitionStartTime = currentMillis;
-        state = PAUSE;
+        state = EF_PAUSE;
       }
       break;
-    case PAUSE:
+    case EF_PAUSE:
       if (currentMillis-transitionStartTime >= pauseDuration) {
         transitionStartTime = currentMillis;
-        state = FADE_DOWN;
+        state = EF_FADE_DOWN;
       }
       break;
-    case FADE_DOWN:
+    case EF_FADE_DOWN:
       if (currentMillis-transitionStartTime < fadeInOutDuration) {
         uint32_t targetValue = map(currentMillis, transitionStartTime, transitionStartTime + fadeInOutDuration, 255, color.val);
         for (uint8_t magic : effects) {
@@ -353,12 +364,12 @@ void houseColorEffect() {
         FastLED.show();
         delay(10); // needed to stop bad behavior of LED color shifts.
       } else {
-        state = DONE;
+        state = EF_DONE;
       }
       break;
-    case DONE:
+    case EF_DONE:
       houseColorEffectInProgress = false;
-      state = INIT;
+      state = EF_INIT;
       break;
   }
 }
@@ -495,45 +506,248 @@ void resetEffectFlags() {
   houseColorChaseEffectRunning = false;
 }
 
+bool startupAudioPlayed = false;
+// // music track definitions
+#define MUSIC_HEDWIGS_THEME 2
+#define MUSIC_KNOCKTURN_ALLEY 1
+#define MUSIC_VOLDEMORT 3
+// unsigned long startupAudioTime = 0;
+// enum AudioSequence {
+//   AS_INIT,
+//   AS_STEP1,
+//   AS_STEP2,
+//   AS_STEP3,
+//   AS_DONE
+// };
+#define HEDWIG_STARTUP_SCENE 2
+#define KNOCKTURN_STARTUP_SCENE 3
+
+// AudioSequence startupAudioSequence = AS_INIT;
+// int startupSceneChosen = -1;
+// unsigned long audioVolumeStepDown = 0;
+// int currentVolume = 30;
+// bool hedwigAudioLoopBegun = false;
+// unsigned long audioStepdownTime = 0;
+// unsigned long lastAudioStepdownTime = 0;
+// CRGB hedwigColors[] = { CRGB::Purple, CRGB::Blue, CRGB::Green, CRGB::Yellow };
+// int hedwigTheme[] = {624, 416, 1249, 416, 624, 416, 6, 6, 1249, 416, 624, 416, 1249, 416, 624, 416, 624, 416, 624, 416, 1249, 416, 624, 416, 416, 624, 416, 624, 416, 624, 416, 1249, 416, 624, 416, 416, 416, 624, 416, 624, 416, 624, 416, 624, 416, 1249, 416, 624, 416 };
+// void hedwigStartupScene() {
+//   Serial.println((String)"Current audio sequence is: " + startupAudioSequence);
+//   Serial.println("Hedwig Startup Scene has been chosen.");
+//   unsigned long currentMillis = millis();
+//   if (startupAudioSequence == AS_INIT) {
+//     Serial.println("AS_INIT was current stage.");
+//     startupAudioTime = currentMillis;
+//     startupAudioSequence = AS_STEP1;
+//     Serial.println("Initializing Hedwig Startup Scene.");
+//     return;
+//   }
+//   if (startupAudioSequence == AS_STEP1) {
+//     Serial.println("Step 1");
+//     if (!hedwigAudioLoopBegun == false) { 
+//       audioStepdownTime = currentMillis;
+//       mp3player.volume(audioVolumeStepDown);
+//       mp3player.play(2);
+//       hedwigAudioLoopBegun = true;
+//       audioVolumeStepDown = currentVolume;
+//     }
+//     // we only want to play for 15 seconds..
+//     if (currentMillis - startupAudioTime > 15000) { 
+//       // let's move to step3 
+//       startupAudioSequence = AS_STEP2;
+//     }
+//     // for (int note : hedwigTheme) {
+//     //   int color = random(1,4);
+//     //   Serial.println((String)color + " note");
+//     //   delay(note);
+    
+//     // int tempo = 144;
+//     // int wholeNote = (60000 * 4) / tempo;
+//     // int divider = 0;
+//     // int noteDuration = 0;
+//     // int melody[] = { 2, 4, -4, 8, 4, 2, 4, -2, -2, -4, 8, 4, 2, 4, -1, 4, -4, 8, 4, 2, 4, 2, 4, 2, 4, -4, 8, 4, 2, 4, -1, 4, 2, 4, 2, 4, 2, 4, -4, 8, 4, 2, 4, -1, 4, 4, 2, 4, 2, 4, 2, 4, 2, 4, -4, 8, 4, 2, 4, -1 }; 
+//     // for (int note : melody) {
+//     //   divider = melody[note];
+//     //   if (divider > 0) {
+//     //     noteDuration = (wholeNote) / divider;
+//     //   } else if (divider < 0) { 
+//     //     noteDuration = (wholeNote) / abs(divider);
+//     //     noteDuration *= 1.5;
+//     //   }
+//     //   Serial.println((String)"note duration is: " + noteDuration);
+//     //   delay(noteDuration);
+//   }
+// }
+
+// void knockturnStartupScene() {
+//   Serial.println("Knockturn Startup Scene has been chosen.");
+// }
+
+// void startupScene() { 
+//   switch (startupSceneChosen) {
+//     case -1: 
+//       startupSceneChosen = 1;
+//       break;
+//     case 1:
+//       hedwigStartupScene();
+//       break;
+//     case 2: 
+//       Serial.println("should not hit here.");
+//       break;
+//     default:
+//       break;
+//   }
+//   Serial.println("Leaving switch");
+// }
+
+// void startupScene() {
+//   Serial.println("In StartupScene");
+//   // we'll never get here unless startupAudioPlayed is false..
+//   switch (startupSceneChosen) { 
+//     case -1: 
+//       int c = random(1,100);
+//       if (c%2 == 0) {
+//         Serial.println((String) c + " was our number.  which %2 = " + (c%2) + " Starting up with hedwig scene");
+//         startupSceneChosen = 1;
+//         break;
+//        } else {
+//         Serial.println((String) c + " was our number.  Starting up with knockturn scene");
+//         startupSceneChosen = 2;
+//       }
+//       break;
+//     case 1:
+//       Serial.println("Calling hedwig thing.");
+// //      hedwigStartupScene();
+//       break;
+//     case 2: 
+//       Serial.println("Calling knockturn thing.");
+//    //   knockturnStartupScene();
+//       break;
+//     default:
+//       Serial.println((String)"hit default.  value was " + startupSceneChosen);
+//       break;
+//   }
+//   Serial.println("Leaving StartupScenee...");
+// }
+
 void setup() {
   unsigned long currentMillis = millis();
   Serial.begin(9600);
   randomSeed(analogRead(0));
   while (!Serial);
+  mp3Serial.begin(9600);
+  isAudioEnabled = true;// digitalRead(MAIN_AUDIO_PIN) == HIGH;
+  delay(1500);
+  Serial.println("Welcome to knockturn!");
+  while (!mp3Serial);
+  if (!mp3player.begin(mp3Serial, /* isACK = */ true, /* doReset = */ false)) {
+    Serial.println("Unable to start mp3 player module.");
+    while(true);
+  }
+  Serial.println("mp3 player module initialized.");
+  // mp3player.stop();
+  mp3player.EQ(DFPLAYER_EQ_CLASSIC);  
   FastLED.addLeds<LED_STRIP_TYPE, LED_PIN, LED_COLOR_MODE>(leds, NUM_LEDS)
     .setCorrection(TypicalLEDStrip)
     .setDither(MAX_BRIGHTNESS < 255);
 
   FastLED.setBrightness(MAX_BRIGHTNESS);
-  FastLED.setMaxPowerInVoltsAndMilliamps(5, 1050);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, 2050);
   FastLED.clear();  // initialize LEDs to off.
   msSinceLastSpellEffect = currentMillis;
   lastLanternReset = currentMillis;
   lastGrateReset = currentMillis;
   // power button setup
   pinMode(MAIN_POWER_BUTTON_PIN, INPUT);
-  pinMode(SW_RESET_PIN, INPUT);
-  digitalWrite(SW_RESET_PIN, LOW);
+  //pinMode(MAIN_AUDIO_PIN, INPUT);
+
+  // don't believe that we need this.
+  // pinMode(SW_RESET_PIN, INPUT);
+  // digitalWrite(SW_RESET_PIN, LOW);
   resetEffectFlags();
-  isPowered = digitalRead(MAIN_POWER_BUTTON_PIN) == HIGH;
+  isPowered = true;
+  // Serial.println((String)"Value of main power button: " + digitalRead(MAIN_POWER_BUTTON_PIN));
+  // Serial.println("10 seconds to change the value.");
+  // delay(10000);
+  // Serial.println((String)"Value of main power button: " + digitalRead(MAIN_POWER_BUTTON_PIN));
+
+  //isAudioEnabled = digitalRead(MAIN_AUDIO_PIN) == HIGH;
   resetAllToDefault();
+  startupAudioPlayed = false;
+  // startupAudioSequence = -1;
   lastMainLoopReset = currentMillis;
+  Serial.println("Startup complete.");
 }
 
+
+// void setup() {
+//   unsigned long currentMillis = millis();
+//   Serial.begin(9600);
+//   randomSeed(analogRead(0));
+//   while (!Serial);
+//   // startupAudioSequence = AS_INIT;
+//   lastMainLoopReset = currentMillis;
+//   Serial.println("Startup complete!");
+// }
+
+void startupScene() { 
+  if ((random(0,100)%2) == 0) { 
+    Serial.println("Playing hedwig.");
+    mp3player.volume(30);
+    Serial.println("Whee");
+    mp3player.play(MUSIC_HEDWIGS_THEME);
+    Serial.println("Whee");
+    startupAudioPlayed = true;
+    Serial.println("Returning");
+  } else { 
+    Serial.println("Playing knockturn");
+    mp3player.volume(30);
+    Serial.println("whee");
+    mp3player.play(MUSIC_KNOCKTURN_ALLEY);
+    Serial.println("Wheeeee");
+    startupAudioPlayed = true;
+    Serial.println("Returning");
+  }
+}
+unsigned long audioRuntime = 60000;
+unsigned long audioStartTime = 0;
+bool audioRunning = false;
+
+bool powered = true;
 void loop() {
+  Serial.println("Checking power...");
   unsigned long currentMillis = millis();
-  if (digitalRead(MAIN_POWER_BUTTON_PIN) == LOW) {
+  if (false == true) { // change back
     if (!isPowered) { 
+      Serial.println("Power off still");
       delay(10);
       return;
     }
+    Serial.println("power off");
     // we may want to consider doing a soft reset here when we turn back on.
+    startupAudioPlayed = false;
     powerdownLights();
+    mp3player.stop();
     resetEffectFlags();
     return;
   } else {
+    Serial.println("Here!");
     // power button is ON
     isPowered = true;
+    if (!startupAudioPlayed) {
+      Serial.println("Playing startup audio.");
+      startupScene();
+      audioRunning = true;
+      audioStartTime = currentMillis;
+      return;
+    }
+    if (audioRunning && startupAudioPlayed && (currentMillis - audioStartTime) > audioRuntime) {
+      mp3player.stop();
+      audioRunning = false;
+      Serial.println("Stopped audio.");
+      return;
+    }
+
     if (isFlashing) {
       flashEffect();
       return;
@@ -554,6 +768,7 @@ void loop() {
       houseColorEffect();
       return;
     }
+    // Serial.println("Checking for light effects.");
     if (!isFlashing && !wandBattleInProgress && !explosionEffectInProgress && !houseColorChaseEffectRunning && !houseColorEffectInProgress) {
       if (currentMillis - lastMainLoopReset > 200) {
         resetAllToDefault();
@@ -571,4 +786,3 @@ void loop() {
     }
   }
 }
-
